@@ -2,6 +2,7 @@ import bs4
 import json
 import sys, os
 import requests
+import random
 
 from requests.exceptions import SSLError
 from urllib.parse import urlparse
@@ -12,10 +13,21 @@ class Crawler(object):
     Konstantin's web crawler.
 
     """
-
+    ONLY = [
+        '.html',
+        '.php',
+        '.com',
+        '.org',
+        '.net',
+        '.io',
+        '.edu',
+        '.co',
+        '/',
+    ]
     PREFIX = "http://"
     DEPTH = 3
-    MAX = 200
+    MAX = 800
+    TARGET_DOMAINS = 1000
 
     def __init__(self, base_url=None):
         super(Crawler, self).__init__()
@@ -24,9 +36,12 @@ class Crawler(object):
         self.base_url = base_url
         self.urls = self.read_urls()
         self.exclusions = list()
+        try:
+            self.domains = read_domains["domains"]
+        except Error as e:
+            self.domains = list()
 
     def get_site_info(self, url=None):
-
         # If there is no url specified,
         # just get the info of the base url
         if url == None:
@@ -49,8 +64,8 @@ class Crawler(object):
         site["headers"] = r.headers
         site["content"] = r.content
         site["urls"] = self.get_links(site["content"])
-        site["external"] = self.filter_external_urls(site["urls"])
-        site["unique_external"] = self.filter_unique_external_urls(site["urls"])
+        site["external"] = self.filter_external_urls(site["urls"])[0]
+
 
         # Should be implemented after some sort of
         # Site mapping function is implemented.
@@ -84,37 +99,33 @@ class Crawler(object):
         unfiltered_urls = list(link['href'] for link in links)
         for url in unfiltered_urls:
             if url not in self.exclusions and url not in self.urls:
-                urls.append(url)
+                accept = False
+                for exception in self.ONLY:
+                    if url.endswith(exception):
+                        accept = True
+                if accept:
+                    urls.append(url)
         return urls
 
     def filter_external_urls(self, urls):
         """
         Takes a raw list of urls and returns only links to external sites
         """
-        to_return = list()
+        filtered_urls = list()
+        domains = list()
         if urls != None:
             for url in urls:
                 parsed_uri = urlparse(url)
                 domain = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
                 if domain != None \
                     and 'http' in domain \
-                    and url not in to_return \
+                    and url not in filtered_urls \
                     and url not in self.urls:
-                    to_return.append(url)
-        return to_return
+                    filtered_urls.append(url)
+                    if domain not in self.domains:
+                        self.domains.append(domain)
 
-    def filter_unique_external_urls(self, urls):
-        """
-        Takes a raw list of urls and returns only unique domain names
-        """
-        to_return = list()
-        if urls != None:
-            for url in urls:
-                parsed_uri = urlparse(url)
-                domain = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
-                if domain != None and 'http' in domain:
-                    if domain not in to_return and domain not in self.urls:
-                        to_return.append(domain)
+        to_return = [filtered_urls, domains]
         return to_return
 
     def filter_internal_urls(self, urls):
@@ -128,32 +139,6 @@ class Crawler(object):
                 to_return.append(url)
         return to_return
 
-    def gather_domains(self, base_url, depth=None):
-        """
-        This recursive function gets all the urls from a page.
-        It then checks the counter, and repeats the process on
-        all found urls until the counter is 0.
-        Then it takes all unique urls and puts them in a list
-        """
-        if depth == None:
-            depth = self.DEPTH
-
-        site = self.get_site_info(base_url)
-        if site == None:
-            return
-        for url in site["unique_external"]:
-            # Keep track of how many urls we've found
-            count = len(self.urls)
-            if depth != 0 and count < self.MAX and url not in self.urls:
-                # Display the url so the end user doesn't think this thing is broken
-                print(url)
-
-                self.gather_urls(url, depth - 1)
-            else:
-                # Add this url to the list
-                self.urls[url] = url
-        return
-
     def gather_urls(self, base_url, depth=None):
         """
         This recursive function gets all the urls from a page.
@@ -161,7 +146,6 @@ class Crawler(object):
         all found urls until the counter is 0.
         Then it takes all unique urls and puts them in a list
         """
-
         if depth == None:
             depth = self.DEPTH
 
@@ -179,8 +163,15 @@ class Crawler(object):
                 # Add this url to the list
                 self.urls[url] = url
                 self.gather_urls(url, depth - 1)
+
+        while len(self.domains) < self.TARGET_DOMAINS:
+            self.gather_urls(self.find_url(), self.DEPTH)
         self.write_urls()
+        self.write_domains()
         return
+
+    def find_url(self):
+        return random.choice(self.domains)
 
     def write_urls(self):
         """
@@ -205,33 +196,66 @@ class Crawler(object):
             # And close the valid json
             f.write('}')
 
+    def write_domains(self):
+        """
+        appends urls to file
+        """
+        first = ""
+        count = 0
+        with open('domains.json', 'w+') as f:
+            # write out some valid json
+            f.write('{ "domains":[\n')
+            # Write all the urls
+            for url in self.domains:
+                count = count + 1
+                if first == "":
+                    first = "{}\n".format(json.dumps(url))
+                else:
+                    f.write("{},\n".format(json.dumps(url)))
+            # Append the first entry without the end comma
+            f.write(first)
+            f.write('],\n')
+            f.write('"count": ' + str(count) + '\n')
+            # And close the valid json
+            f.write('}')
+
     def read_urls(self):
         """
         Read urls from a file
         """
-        urls = dict()
         try:
-            with open('urls.json', 'r') as urls_file:
-                data = json.load(urls_file)
-                print(data)
+            urls_file = open('urls.json', 'r')
+            return json.load(urls_file)
         except FileNotFoundError as e:
-            pass
-        return urls
+            return list()
+
+
+    def read_domains(self):
+        """
+        Read domains from a file
+        """
+        try:
+            domains_file = open('domains.json', 'r')
+            return json.load(domains_file)
+        except FileNotFoundError as e:
+            return list()
+
 
     def read_exclusions(self):
         """
         Read exclusions from a file
         """
-        exclusions = list()
+        exclusions = dict()
         try:
-            with open('exclusions.json') as ex_file:
-                data = json.load(ex_file)
+            ex_file = open('exclusions.json', 'r')
+            exclusions = json.load(ex_file)
         except FileNotFoundError as e:
             pass
+
         return exclusions
+
 
 # Test code
 crawler = Crawler()
-
 url = "news.ycombinator.com"
 site = crawler.gather_urls(url)
