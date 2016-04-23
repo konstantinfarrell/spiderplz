@@ -1,7 +1,7 @@
 .PHONY: run install clean
 
 VENV_DIR ?= .env
-PYTHON = python3
+PYTHON = python3.5
 
 run:
 	clear
@@ -17,5 +17,5 @@ clean:
 	find . -iname "__pycache__" -delete
 
 $(VENV_DIR):
-	virtualenv --no-site-packages -p $(PYTHON) $(VENV_DIR)
+	virtualenv $(VENV_DIR)
 	$(VENV_DIR)/bin/pip install -r requirements.txt
