@@ -1,11 +1,11 @@
 .PHONY: run install clean
 
 VENV_DIR ?= .env
-PYTHON = python3.5
+PYTHON = python
 
 run:
 	clear
-	$(PYTHON) crawl.py
+	$(VENV_DIR)/bin/$(PYTHON) crawl.py
 
 init:
 	rm -rf $(VENV_DIR)
